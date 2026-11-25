@@ -32,6 +32,13 @@ class ProposalSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "status", "created_at"]
 
+    def validate(self, attrs):
+        if self.instance and "job" in attrs and attrs["job"] != self.instance.job:
+            raise serializers.ValidationError(
+                {"job": "You cannot move a proposal to a different job."}
+            )
+        return attrs
+
     def validate_bid_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Bid must be greater than zero.")

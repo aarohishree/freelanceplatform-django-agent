@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposal Assistant</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f3f4f6; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+    header { background: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; }
+    header strong { font-size: 16px; }
+    header button { background: none; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+    #chat { flex: 1; overflow-y: auto; padding: 16px; max-width: 760px; width: 100%; margin: 0 auto; }
+    .msg { margin: 10px 0; padding: 10px 14px; border-radius: 14px; max-width: 85%; line-height: 1.45; white-space: pre-wrap; }
+    .user { background: #2563eb; color: #fff; margin-left: auto; }
+    .bot { background: #fff; border: 1px solid #e5e7eb; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .meta { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+    .bot textarea { width: 100%; min-height: 160px; padding: 8px; font: inherit; }
+    .bot label { font-size: 13px; color: #374151; display: block; margin-top: 8px; }
+    .bot input[type=number] { padding: 6px; width: 140px; }
+    .actions { margin-top: 10px; display: flex; gap: 8px; }
+    .actions button { padding: 8px 14px; border: 0; border-radius: 8px; background: #16a34a; color: #fff; cursor: pointer; }
+    #composer { background: #fff; border-top: 1px solid #e5e7eb; padding: 12px 16px; display: flex; gap: 8px; max-width: 760px; width: 100%; margin: 0 auto; }
+    #composer select { flex: 1; padding: 10px; }
+    #composer button { padding: 10px 16px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Proposal Assistant</strong>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit">Log out ({{ user.username }})</button>
+    </form>
+  </header>
+
+  {% if not_freelancer %}
+    <main id="chat">
+      <div class="msg bot">This assistant is for freelancers. Please log in with a freelancer account.</div>
+    </main>
+  {% else %}
+    <main id="chat">
+      <div class="msg bot">Hi {{ user.username }}! Pick an open job below and I'll draft a proposal for you to review.</div>
+    </main>
+    <form id="composer">
+      <select id="job" required>
+        {% for job in jobs %}
+          <option value="{{ job.id }}">{{ job.title }} (budget {{ job.budget }})</option>
+        {% empty %}
+          <option value="">No open jobs available</option>
+        {% endfor %}
+      </select>
+      <button type="submit" id="send">Draft proposal</button>
+    </form>
+  {% endif %}
+
+  <script>
+    const CSRF = "{{ csrf_token }}";
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("composer");
+
+    function addMessage(kind, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + kind;
+      div.textContent = text;      // textContent, never innerHTML: AI text is untrusted
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+      return div;
+    }
+
+    async function api(url, method, body) {
+      const res = await fetch(url, {
+        method,
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function errorText(r) {
+      const d = r.data;
+      if (!d) return "Something went wrong (HTTP " + r.status + ").";
+      if (typeof d === "string") return d;
+      if (Array.isArray(d)) return d.join(" ");
+      if (d.detail) return d.detail;
+      if (d.error) return "The agent failed: " + d.error;
+      return JSON.stringify(d);
+    }
+
+    function addDraftCard(result) {
+      const p = result.proposal;
+      const card = document.createElement("div");
+      card.className = "msg bot";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = "Agent steps: " + (result.steps.length ? result.steps.join(" → ") : "none") +
+        "  |  Run #" + result.run_id + " (see Admin > Agent runs)";
+      card.appendChild(meta);
+
+      const letterLabel = document.createElement("label");
+      letterLabel.textContent = "Cover letter (you can edit it)";
+      const letter = document.createElement("textarea");
+      letter.value = p.cover_letter;
+
+      const bidLabel = document.createElement("label");
+      bidLabel.textContent = "Bid amount";
+      const bid = document.createElement("input");
+      bid.type = "number"; bid.step = "0.01"; bid.value = p.bid_amount;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const submit = document.createElement("button");
+      submit.textContent = "Submit proposal";
+      actions.appendChild(submit);
+
+      submit.addEventListener("click", async () => {
+        submit.disabled = true;
+        const saved = await api("/api/proposals/" + p.id + "/", "PATCH",
+          { cover_letter: letter.value, bid_amount: bid.value });
+        if (!saved.ok) { addMessage("error", errorText(saved)); submit.disabled = false; return; }
+        const sent = await api("/api/proposals/" + p.id + "/submit/", "POST");
+        if (!sent.ok) { addMessage("error", errorText(sent)); submit.disabled = false; return; }
+        letter.disabled = true; bid.disabled = true;
+        submit.textContent = "Submitted";
+        addMessage("bot", "Done. Your proposal was submitted. The client can now see it.");
+      });
+
+      [letterLabel, letter, bidLabel, bid, actions].forEach((el) => card.appendChild(el));
+      chat.appendChild(card);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    if (form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const select = document.getElementById("job");
+        const send = document.getElementById("send");
+        if (!select.value) return;
+
+        addMessage("user", "Draft a proposal for: " + select.options[select.selectedIndex].text);
+        const thinking = addMessage("bot", "Thinking… the agent is reading the job and your profile.");
+        send.disabled = true;
+
+        const r = await api("/api/jobs/" + select.value + "/draft-proposal/", "POST");
+        thinking.remove();
+        send.disabled = false;
+
+        if (!r.ok) { addMessage("error", errorText(r)); return; }
+        select.options[select.selectedIndex].remove();   // this job now has a draft
+        addDraftCard(r.data);
+      });
+    }
+  </script>
+</body>
+</html>

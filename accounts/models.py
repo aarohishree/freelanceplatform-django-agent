@@ -3,6 +3,8 @@ from django.db import models
 
 
 class User(AbstractUser):
+    skills = models.CharField(max_length=300, blank=True)
+    bio = models.TextField(blank=True)
     class Role(models.TextChoices):
         CLIENT = "client", "Client"
         FREELANCER = "freelancer", "Freelancer"

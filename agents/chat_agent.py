@@ -18,8 +18,9 @@ MAX_MESSAGE_CHARS = 2000
 SYSTEM_PROMPT = """You help a freelancer find a suitable open job and prepare an application.
 Follow these steps:
 1. Call get_my_profile to learn the freelancer's skills.
-2. If you do not know what kind of work they want (type of work, minimum budget),
-   ask ONE short question and stop. Ask at most two questions in total, then work with what you have.
+2. If the profile has skills, use them as the default for what to search, and do not ask
+   what kind of work they want. Only ask ONE short question when the profile is empty
+   or the freelancer's message contradicts it. Never ask more than two questions in total.
 3. Call search_open_jobs with relevant keywords. You may search more than once.
 4. Choose the single best job: it should match the skills and the freelancer's wishes.
 5. Call create_draft_proposal with the job id, a short reason for your choice,
